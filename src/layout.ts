@@ -13,7 +13,7 @@ import {
   normalizeChildren,
   hasDangerouslySetInnerHTMLProp,
 } from './utils.js'
-import { SVGNodeToImage } from './handler/preprocess.js'
+import { SVGNodeToForeignObject, SVGNodeToImage } from './handler/preprocess.js'
 import computeStyle from './handler/compute.js'
 import FontLoader from './font.js'
 import buildTextNodes from './text/index.js'
@@ -51,7 +51,7 @@ export interface SatoriNode {
 
 export default async function* layout(
   element: ReactNode,
-  context: LayoutContext
+  context: LayoutContext,
 ): AsyncGenerator<
   { word: string; locale?: string }[],
   string,
@@ -107,7 +107,7 @@ export default async function* layout(
   const { type, props } = element
   if (props && hasDangerouslySetInnerHTMLProp(props)) {
     throw new Error(
-      'dangerouslySetInnerHTML property is not supported. See documentation for more information https://github.com/vercel/satori#jsx.'
+      'dangerouslySetInnerHTML property is not supported. See documentation for more information https://github.com/vercel/satori#jsx.',
     )
   }
   let { style, children, tw, lang: _newLocale = locale } = props || {}
@@ -127,7 +127,7 @@ export default async function* layout(
     type,
     inheritedStyle,
     style,
-    props
+    props,
   )
   // Post-process styles to attach inheritable properties for Satori.
 
@@ -234,7 +234,7 @@ export default async function* layout(
         debug,
       },
       computedStyle,
-      newInheritableStyle
+      newInheritableStyle,
     )
   } else if (type === 'svg') {
     // When entering a <svg> node, we need to convert it to a <img> with the
@@ -253,8 +253,20 @@ export default async function* layout(
         debug,
       },
       computedStyle,
-      newInheritableStyle
+      newInheritableStyle,
     )
+  } else if (
+    // type === 'div' &&
+    children &&
+    typeof children !== 'string' &&
+    restProps?.foreignobject &&
+    style?.display == 'flex' &&
+    style?.display !== 'none'
+  ) {
+    const pos = { left: left, top: top }
+    const shape = { width: width ?? '100%', height: height ?? '100%' }
+    baseRenderResult = await SVGNodeToForeignObject(element, pos, shape)
+    console.log('baseRenderResult: ', baseRenderResult)
   } else {
     const display = style?.display
     if (
@@ -265,19 +277,21 @@ export default async function* layout(
       display !== 'none'
     ) {
       throw new Error(
-        `Expected <div> to have explicit "display: flex" or "display: none" if it has more than one child node.`
+        `Expected <div> to have explicit "display: flex" or "display: none" if it has more than one child node.`,
       )
     }
     baseRenderResult = await rect(
       { id, left, top, width, height, isInheritingTransform, debug },
       computedStyle,
-      newInheritableStyle
+      newInheritableStyle,
     )
   }
 
-  // Generate the rendered markup for the children.
-  for (const iter of iterators) {
-    childrenRenderResult += (await iter.next([left, top])).value
+  // Generate the rendered markup for the children if children are not from foreignObject element.
+  if (!restProps?.foreignobject) {
+    for (const iter of iterators) {
+      childrenRenderResult += (await iter.next([left, top])).value
+    }
   }
 
   // An extra pass to generate the special background-clip shape collected from
@@ -291,7 +305,7 @@ export default async function* layout(
           ? `url(#${computedStyle._inheritedClipPathId})`
           : undefined,
       },
-      (computedStyle._inheritedBackgroundClipTextPath as any).value
+      (computedStyle._inheritedBackgroundClipTextPath as any).value,
     )
   }
 

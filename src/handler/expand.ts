@@ -35,7 +35,7 @@ function handleFallbackColor(
   prop: string,
   parsed: Record<string, string>,
   rawInput: string,
-  currentColor: string
+  currentColor: string,
 ) {
   if (
     prop === 'textDecoration' &&
@@ -57,7 +57,7 @@ function purify(name: string, value?: string | number) {
 function handleSpecialCase(
   name: string,
   value: string | number,
-  currentColor: string
+  currentColor: string,
 ) {
   if (name === 'lineHeight') {
     return { lineHeight: purify(name, value) }
@@ -84,13 +84,16 @@ function handleSpecialCase(
     const vh = getStylesForProperty(name, horizontal, true)
     const vv = getStylesForProperty(name, vertical, true)
     for (const k in vh) {
-      vv[k] = purify(name, vh[k]) + ' ' + purify(name, vv[k])
+      vv[k] =
+        purify(name, vh[k] as string | number) +
+        ' ' +
+        purify(name, vv[k] as string | number)
     }
     return vv
   }
 
   if (/^border(Top|Right|Bottom|Left)?$/.test(name)) {
-    const resolved = getStylesForProperty('border', value, true)
+    const resolved = getStylesForProperty('border', String(value), true)
 
     // Border width should be default to 3px (medium) instead of 1px:
     // https://w3c.github.io/csswg-drafts/css-backgrounds-3/#border-width
@@ -108,15 +111,15 @@ function handleSpecialCase(
     }
 
     const purified = {
-      Width: purify(name + 'Width', resolved.borderWidth),
+      Width: purify(name + 'Width', resolved.borderWidth as string | number),
       Style: v(
-        resolved.borderStyle,
+        resolved.borderStyle as string | number,
         {
           solid: 'solid',
           dashed: 'dashed',
         },
         'solid',
-        name + 'Style'
+        name + 'Style',
       ),
       Color: resolved.borderColor,
     }
@@ -152,7 +155,7 @@ function handleSpecialCase(
       return symbol + 'px'
     })
     const parsed = getStylesForProperty('transform', replaced, true)
-    for (const t of parsed.transform) {
+    for (const t of Array.isArray(parsed.transform) ? parsed.transform : []) {
       for (const k in t) {
         if (symbols[t[k]]) {
           t[k] = symbols[t[k]]
@@ -271,14 +274,14 @@ export type SerializedStyle = Partial<MainStyle & OtherStyle>
 
 export default function expand(
   style: Record<string, string | number> | undefined,
-  inheritedStyle: SerializedStyle
+  inheritedStyle: SerializedStyle,
 ): SerializedStyle {
   const serializedStyle: SerializedStyle = {}
 
   if (style) {
     const currentColor = getCurrentColor(
       style.color as string,
-      inheritedStyle.color
+      inheritedStyle.color,
     )
 
     serializedStyle.color = currentColor
@@ -302,9 +305,13 @@ export default function expand(
           handleSpecialCase(name, value, currentColor) ||
           handleFallbackColor(
             name,
-            getStylesForProperty(name, purify(name, value), true),
+            getStylesForProperty(
+              name,
+              String(purify(name, value)),
+              true,
+            ) as Record<string, string>,
             value as string,
-            currentColor
+            currentColor,
           )
 
         Object.assign(serializedStyle, resolvedStyle)
@@ -315,7 +322,7 @@ export default function expand(
             // the error message.
             (err.message.includes(value)
               ? '\n  ' + getErrorHint(name)
-              : `\n  in CSS rule \`${name}: ${value}\`.${getErrorHint(name)}`)
+              : `\n  in CSS rule \`${name}: ${value}\`.${getErrorHint(name)}`),
         )
       }
     }
@@ -334,7 +341,7 @@ export default function expand(
   // Calculate the base font size.
   const baseFontSize = calcBaseFontSize(
     serializedStyle.fontSize,
-    inheritedStyle.fontSize
+    inheritedStyle.fontSize,
   )
   if (typeof serializedStyle.fontSize !== 'undefined') {
     serializedStyle.fontSize = baseFontSize
@@ -343,7 +350,7 @@ export default function expand(
   if (serializedStyle.transformOrigin) {
     serializedStyle.transformOrigin = parseTransformOrigin(
       serializedStyle.transformOrigin as any,
-      baseFontSize
+      baseFontSize,
     )
   }
 
@@ -359,7 +366,7 @@ export default function expand(
             baseFontSize,
             baseFontSize,
             inheritedStyle,
-            true
+            true,
           ) / baseFontSize
       }
     } else {
@@ -369,7 +376,7 @@ export default function expand(
           value,
           baseFontSize,
           baseFontSize,
-          inheritedStyle
+          inheritedStyle,
         )
         if (typeof len !== 'undefined') serializedStyle[prop] = len
         value = serializedStyle[prop]
@@ -399,8 +406,8 @@ export default function expand(
         // Convert em, rem, vw, vh values to px (number), but keep % values.
         const len =
           typeof _v === 'string'
-            ? lengthToNumber(_v, baseFontSize, baseFontSize, inheritedStyle) ??
-              _v
+            ? (lengthToNumber(_v, baseFontSize, baseFontSize, inheritedStyle) ??
+              _v)
             : _v
         transform[type] = len
       }
@@ -410,7 +417,7 @@ export default function expand(
       const textShadowRadius = value as unknown as Array<number | string>
 
       serializedStyle.textShadowRadius = textShadowRadius.map((_v) =>
-        lengthToNumber(_v, baseFontSize, 0, inheritedStyle, false)
+        lengthToNumber(_v, baseFontSize, 0, inheritedStyle, false),
       )
     }
 
@@ -427,10 +434,10 @@ export default function expand(
             baseFontSize,
             0,
             inheritedStyle,
-            false
+            false,
           ),
           width: lengthToNumber(width, baseFontSize, 0, inheritedStyle, false),
-        })
+        }),
       )
     }
   }
@@ -440,7 +447,7 @@ export default function expand(
 
 function calcBaseFontSize(
   size: number | string,
-  inheritedSize: number
+  inheritedSize: number,
 ): number {
   if (typeof size === 'number') return size
 
@@ -475,7 +482,7 @@ function refineHSL(color: string) {
 
 function getCurrentColor(
   color: string | undefined,
-  inheritedColor: string
+  inheritedColor: string,
 ): string {
   if (color && color.toLowerCase() !== 'currentcolor') {
     return refineHSL(color)
@@ -486,14 +493,14 @@ function getCurrentColor(
 
 function convertCurrentColorToActualValue(
   value: string,
-  currentColor: string
+  currentColor: string,
 ): string {
   return value.replace(/currentcolor/gi, currentColor)
 }
 
 function preprocess(
   value: string | number,
-  currentColor: string
+  currentColor: string,
 ): string | number {
   if (isString(value)) {
     value = convertCurrentColorToActualValue(value, currentColor)

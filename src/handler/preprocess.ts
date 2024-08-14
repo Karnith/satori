@@ -1,6 +1,13 @@
 import type { ReactElement, ReactNode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { flushSync } from 'react-dom'
 import { resolveImageData, cache } from './image.js'
-import { isReactElement, parseViewBox, midline } from '../utils.js'
+import {
+  isReactElement,
+  parseViewBox,
+  midline,
+  buildXMLString,
+} from '../utils.js'
 
 // Based on
 // https://raw.githubusercontent.com/facebook/react/master/packages/react-dom/src/shared/possibleStandardNames.js
@@ -96,7 +103,7 @@ const SVGSymbols = /[\r\n%#()<>?[\\\]^`{|}"']/g
 
 function translateSVGNodeToSVGString(
   node: ReactElement | string | (ReactElement | string)[],
-  inheritedColor: string
+  inheritedColor: string,
 ): string {
   if (!node) return ''
   if (Array.isArray(node)) {
@@ -109,7 +116,7 @@ function translateSVGNodeToSVGString(
   const type = node.type
   if (type === 'text') {
     throw new Error(
-      '<text> nodes are not currently supported, please convert them to <path>'
+      '<text> nodes are not currently supported, please convert them to <path>',
     )
   }
 
@@ -137,7 +144,7 @@ function translateSVGNodeToSVGString(
 
   return `<${type}${attrs}${styles}>${translateSVGNodeToSVGString(
     children,
-    currentColor
+    currentColor,
   )}</${type}>`
 }
 /**
@@ -184,7 +191,7 @@ export async function preProcessNode(node: ReactNode) {
 
 export async function SVGNodeToImage(
   node: ReactElement,
-  inheritedColor: string
+  inheritedColor: string,
 ): Promise<string> {
   let {
     viewBox,
@@ -223,6 +230,68 @@ export async function SVGNodeToImage(
     })
     .join('')}>${translateSVGNodeToSVGString(
     children,
-    currentColor
+    currentColor,
   )}</svg>`.replace(SVGSymbols, encodeURIComponent)}`
+}
+
+/**
+ * Interface representing the position of an element.
+ */
+interface Position {
+  left: number
+  top: number
+}
+
+/**
+ * Interface representing the shape of an element.
+ */
+interface Shape {
+  width: string | number
+  height: string | number
+}
+
+/**
+ * Converts a React element to an SVG foreignObject element.
+ *
+ * @param node - The React element to be converted.
+ * @param pos - The position where the foreignObject should be placed.
+ * @param shape - The shape (width and height) of the foreignObject.
+ * @returns A promise that resolves to a string representing the foreignObject element.
+ * @throws Will throw an error if the rendering process fails.
+ */
+export async function SVGNodeToForeignObject(
+  node: ReactElement,
+  pos: Position,
+  shape: Shape,
+): Promise<string> {
+  try {
+    // Create a div element to render the React element into
+    const div = document.createElement('div')
+    const root = createRoot(div)
+
+    // Render the React element into the div
+    flushSync(() => {
+      root.render(node)
+    })
+
+    // Get the inner HTML of the div and remove any foreignObject attributes
+    const nodeChildren = div.innerHTML.replace(/ foreignobject="true"/g, '')
+
+    // Build and return the XML string for the foreignObject element
+    return buildXMLString(
+      'foreignObject',
+      {
+        xmlns: 'http://www.w3.org/1999/xhtml',
+        x: pos.left,
+        y: pos.top,
+        width: shape.width,
+        height: shape.height,
+      },
+      nodeChildren,
+    )
+  } catch (error) {
+    // Log and rethrow any errors that occur during the rendering process
+    console.error('Error rendering SVG node to foreignObject:', error)
+    throw error
+  }
 }
